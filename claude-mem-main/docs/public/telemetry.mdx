@@ -1,0 +1,121 @@
+---
+title: "Telemetry"
+description: "Anonymous usage analytics — opt-in, fully documented, one command to enable"
+---
+
+# Telemetry
+
+Claude-mem includes anonymous usage analytics (via PostHog) to help prioritize fixes and features.
+
+**It is off by default (opt-in).** Events are anonymous, identified only by a random install UUID, and every property passes a strict whitelist — see [What is collected](#what-is-collected) and [What is NEVER collected](#what-is-never-collected) below. Turning it on is one command:
+
+```bash
+npx claude-mem telemetry enable
+```
+
+The standard [`DO_NOT_TRACK`](https://consoledonottrack.com) environment variable is also honored and overrides everything. Installation does not enable telemetry or write a consent decision; use the explicit command above after reviewing what is collected.
+
+## What is collected
+
+When enabled, events are anonymous and identified only by a random install UUID (`crypto.randomUUID()`, generated locally on first use).
+
+The low-volume `worker_started` lifecycle event builds an analytics profile keyed to that random UUID so aggregate retention and cohort statistics are computable — the profile contains nothing beyond the whitelisted fields below (platform and version). It is not, and cannot be, connected to you: there is no name, email, IP, hardware ID, or any other identifier. All high-volume events (`session_compressed`, `search_performed`, `context_injected`, `error_occurred`) are sent with `$process_person_profile: false` and build no profile at all.
+
+Every event property passes through a strict whitelist scrubber — any key not in this table is silently dropped before sending:
+
+| Field | Example | Description |
+|---|---|---|
+| event name | `session_compressed` | Which of the events below occurred |
+| `distinct_id` | `7f3c…` (random UUID) | Anonymous install ID — not derived from you or your machine |
+| `version` | `13.4.2` | claude-mem version |
+| `os` | `darwin` | Operating system platform |
+| `arch` | `arm64` | CPU architecture |
+| `runtime` | `bun` | `bun` or `node` |
+| `runtime_version` | `1.2.0` | Runtime version string |
+| `duration_ms` | `1843` | How long an operation took |
+| `outcome` | `ok` | Coarse result: ok / error / partial |
+| `error_category` | `provider_error` | Coarse error bucket — never an error message |
+| `locale` | `en-US` | Language tag |
+| `is_ci` | `false` | Whether running in CI |
+| `endpoint` | `by-file` | Which claude-mem search route — always one of our route names, never a query |
+| `ide` | `claude-code` | Installer IDE choice (the installer's own id list) |
+| `provider` | `claude` | LLM provider choice: claude / gemini / openrouter |
+| `runtime_mode` | `worker` | worker or server runtime |
+| `trigger` | `heartbeat` | Whether `worker_started` was a real start or the daily heartbeat |
+| `count` | `7` | Integer volume, e.g. observations stored in one compression |
+| `has_summary` | `true` | Whether a compression also produced a session summary |
+| `is_update` | `false` | Whether an install ran over an existing installation |
+
+### Events
+
+| Event | When | Extra properties |
+|---|---|---|
+| `worker_started` | The background worker starts, plus one heartbeat per 24h of uptime | `trigger` (start / heartbeat), `duration_ms` |
+| `session_compressed` | A session compression stores observations, or the compression generator fails | `outcome`, `duration_ms`, `count`, `has_summary`; on failure `provider`, `error_category` |
+| `context_injected` | Stored memory is injected into a new session | `outcome`, `duration_ms` |
+| `search_performed` | A memory search runs (never the query text) | `endpoint`, `outcome`, `duration_ms` |
+| `error_occurred` | Worker HTTP 5xx responses and coarse worker/daemon failures | `error_category` |
+
+## What is NEVER collected
+
+| Never collected | Notes |
+|---|---|
+| Prompts or conversation content | Not even truncated or hashed |
+| File paths or directory names | Including cwd, transcript paths, data dir |
+| Source code | In any form |
+| Project or repository names | Including git remotes and branch names |
+| Search queries | Only the fact that a search happened |
+| Error messages or stack traces | Only a coarse category string |
+| IP addresses | Never attached to events by the client; the analytics project is configured to discard sender IPs on ingest |
+| Hardware or machine identifiers | Not even hashed MAC addresses or hostnames |
+| Environment variable values | Ever |
+| Emails, usernames, or any PII | Ever |
+
+These are enforced in code: properties go through a whitelist (only the fields in the table above survive), not a blocklist. Every whitelisted field is either a number, a boolean, or a value from a closed set we define — there is no field that could carry free-form user content.
+
+## How to control telemetry
+
+Telemetry remains off until explicitly enabled. These controls are checked in this order, first match wins:
+
+1. **`DO_NOT_TRACK`** — the [universal opt-out](https://consoledonottrack.com). Set `DO_NOT_TRACK=1` and telemetry is forced off, overriding everything else.
+2. **`CLAUDE_MEM_TELEMETRY=0`** (also `false` / `off`) — environment override. (`CLAUDE_MEM_TELEMETRY=1` conversely forces it on.)
+3. **Telemetry config file** — `enabled: false` in `telemetry.json` (see below).
+4. **CLI command** — enable it after reviewing the disclosure:
+   ```bash
+  npx claude-mem telemetry enable
+   ```
+
+Check the current state — and which of the four layers decided it — anytime:
+
+```bash
+npx claude-mem telemetry status
+```
+
+## Debug mode
+
+Want to see exactly what would be sent? Set:
+
+```bash
+CLAUDE_MEM_TELEMETRY_DEBUG=1
+```
+
+With debug mode on (and telemetry enabled), every would-be event payload is printed to stderr and **nothing is sent over the network**.
+
+## Where the config lives
+
+Consent is stored in `telemetry.json`, and the anonymous install ID is stored in `telemetry-install-id.json`, inside the claude-mem data directory:
+
+- Default: `~/.claude-mem/telemetry.json`
+- Or `$CLAUDE_MEM_DATA_DIR/telemetry.json` if you've overridden the data dir
+
+The identity file is local-only and contains only the random UUID. It lets explicit environment opt-in remain stable across worker restarts without writing a consent decision.
+
+```json
+{
+  "enabled": false,
+  "installId": "<random UUID>",
+  "decidedAt": "2026-06-09T21:00:00.000Z"
+}
+```
+
+The `enabled` field is only present once you've made an explicit choice (`telemetry enable` or `telemetry disable`). Delete both files to reset consent and identity completely — a fresh install ID is generated on next use.
