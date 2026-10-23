@@ -2,6 +2,15 @@
 
 REST V1 is mounted under `/v1`; legacy worker routes remain under `/api`.
 
+## Worker health endpoints
+
+The local worker exposes `GET /api/health` for liveness,
+`GET /api/readiness` for initialization readiness, and `GET /api/stats` for
+worker and database statistics. The viewer polls these endpoints every 10
+seconds and also reports the live SSE stream connection. A degraded health
+response or an initializing worker is shown separately from an unavailable
+endpoint.
+
 Available beta endpoints:
 
 - `GET /healthz`

@@ -3,6 +3,8 @@ import { ThemeToggle } from './ThemeToggle';
 import { ThemePreference } from '../hooks/useTheme';
 import { GitHubStarsButton } from './GitHubStarsButton';
 import { useSpinningFavicon } from '../hooks/useSpinningFavicon';
+import { SystemHealth } from './SystemHealth';
+import { useSystemMonitoring } from '../hooks/useSystemMonitoring';
 
 interface HeaderProps {
   isConnected: boolean;
@@ -30,6 +32,7 @@ export function Header({
   onShowHelp
 }: HeaderProps) {
   useSpinningFavicon(isProcessing);
+  const { checks, isRefreshing, lastCheckedAt, refresh } = useSystemMonitoring();
 
   return (
     <div className="header">
@@ -47,6 +50,13 @@ export function Header({
         </h1>
       </div>
       <div className="status">
+        <SystemHealth
+          checks={checks}
+          isRefreshing={isRefreshing}
+          isConnected={isConnected}
+          lastCheckedAt={lastCheckedAt}
+          onRefresh={refresh}
+        />
         <a
           href="https://docs.claude-mem.ai"
           target="_blank"
